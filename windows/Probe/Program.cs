@@ -81,6 +81,9 @@ static class Program
         var mode = args.Get("mode", "main");
         if (mode == "modules") return Modules.Run(args.Get("dir", "."), true);
         if (mode == "unload") return Modules.UnloadChild(args.Get("dir", "."), args.Get("lang", "go"));
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (s, e) => Util.Emit("RESULT host-exception " + Util.Json(new { error = e.Exception.ToString() }));
+        AppDomain.CurrentDomain.UnhandledException += (s, e) => Util.Emit("RESULT host-exception " + Util.Json(new { error = e.ExceptionObject.ToString() }));
         Application.SetHighDpiMode(HighDpiMode.SystemAware);
         Application.EnableVisualStyles();
         var form = new ProbeForm(args);
@@ -151,7 +154,7 @@ sealed class ProbeForm : Form
 
             var timeout = double.Parse(args.Get("timeout", "300"));
             var wd = new Timer { Interval = (int)(timeout * 1000) };
-            wd.Tick += (s, e) => { wd.Stop(); results["timeout"] = new { afterSecs = timeout }; Util.Emit("RESULT timeout {\"afterSecs\":" + timeout + "}"); Finish(2); };
+            wd.Tick += (s, e) => { wd.Stop(); if (mode == "events") RecordEventsHost(); results["timeout"] = new { afterSecs = timeout }; Util.Emit("RESULT timeout {\"afterSecs\":" + timeout + "}"); Finish(2); };
             wd.Start();
 
             string start;
@@ -439,6 +442,7 @@ sealed class ProbeForm : Form
     void StartEvents(string delivery, int rate, double secs)
     {
         eventsDelivery = delivery;
+        Util.Emit($"PROBE events start delivery={delivery} rate={rate} secs={secs}");
         SampleMemory("start");
         var sw = Stopwatch.StartNew();
         double nextSample = 2000;
@@ -460,11 +464,12 @@ sealed class ProbeForm : Form
                 sent++;
             }
             postMsTotal += (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
-            if (el >= nextSample) { SampleMemory("t+" + (int)(el / 1000) + "s"); nextSample += 5000; }
+            if (el >= nextSample) { SampleMemory("t+" + (int)(el / 1000) + "s"); nextSample += 5000; Util.Emit($"PROBE events t={(int)(el / 1000)}s sent={sent} queue={queue.Count}"); }
             if (el >= secs * 1000 && sent >= (long)(rate * secs))
             {
                 tick.Stop();
                 SampleMemory("end");
+                Util.Emit($"PROBE events END sent={sent}");
                 core.PostWebMessageAsString("END:" + sent);
             }
         };

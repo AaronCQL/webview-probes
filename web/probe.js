@@ -19,6 +19,10 @@ function show(s) {
 
 async function report(phase, obj) {
   show(phase);
+  if (phase === 'done' && location.protocol.startsWith('http') && !location.hostname.endsWith('probe.localhost')) {
+    // results go to the loopback server; tell the native host we are finished
+    setTimeout(() => { msgCall('__done').catch(() => {}); }, 300);
+  }
   try {
     await fetch('/result/' + encodeURIComponent(phase), { method: 'POST', body: JSON.stringify(obj) });
   } catch (e) {
@@ -238,16 +242,20 @@ async function bodies() {
 }
 
 // ---------- A3: latency ----------
+let clockNote = null;
 async function makeClock() {
-  if (!self.crossOriginIsolated || typeof SharedArrayBuffer !== 'function') return null;
+  let sab = null;
   try {
-    const sab = new SharedArrayBuffer(8);
+    if (typeof SharedArrayBuffer === 'function') { sab = new SharedArrayBuffer(8); clockNote = 'SharedArrayBuffer'; }
+    else { sab = new WebAssembly.Memory({ initial: 1, maximum: 1, shared: true }).buffer; clockNote = 'wasm-shared-memory'; }
+  } catch (e) { clockNote = 'no SAB: ' + e; return null; }
+  try {
     const a = new Int32Array(sab);
     const w = new Worker('clock.js');
-    w.postMessage(sab);
+    try { w.postMessage(sab); } catch (e) { clockNote += ' postMessage failed: ' + e; w.terminate(); return null; }
     const t = Date.now();
     while (Atomics.load(a, 0) === 0 && Date.now() - t < 3000) await sleep(10);
-    if (Atomics.load(a, 0) === 0) { w.terminate(); return null; }
+    if (Atomics.load(a, 0) === 0) { clockNote += ' (worker never ticked)'; w.terminate(); return null; }
     const calibrate = () => {
       const c0 = Atomics.load(a, 0), t0 = performance.now();
       while (performance.now() - t0 < 300) {}
@@ -256,6 +264,7 @@ async function makeClock() {
     };
     return { a, w, calibrate, read: () => Atomics.load(a, 0) };
   } catch (e) {
+    clockNote += ' error: ' + e;
     return null;
   }
 }
@@ -288,6 +297,7 @@ async function latency() {
   const tpu = clock ? clock.calibrate() : null;
   const res = {
     clock: clock ? 'sab-counter' : 'performance.now',
+    clockSource: clockNote,
     clock_ticks_per_us: tpu && Math.round(tpu * 100) / 100,
     timer: timerResolution(),
   };
@@ -427,9 +437,13 @@ async function eventsMode() {
   };
   const t0 = Date.now();
   let finished = false;
+  const prog = setInterval(() => {
+    fetch('/result/events-progress', { method: 'POST', body: JSON.stringify({ t: Date.now() - t0, recv, lastSeq, frames, gaps50 }) }).catch(() => {});
+  }, 5000);
   const finish = async (sent) => {
     if (finished) return;
     finished = true;
+    clearInterval(prog);
     if (delivery === 'wakepull') { while (pulling) await sleep(5); await pull(); }
     running = false;
     lat.sort((a, b) => a - b);
@@ -471,6 +485,11 @@ async function main() {
     if (MODE === 'events') return await eventsMode();
     await report('env-coi', await envInfo());
     if (MODE === 'envonly') return await report('done', {});
+    if (MODE === 'loopback') {
+      await latency();
+      await workerBlock();
+      return await report('done', {});
+    }
     await bodies();
     await latency();
     await workerBlock();

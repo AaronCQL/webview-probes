@@ -89,7 +89,12 @@ final class Probe: NSObject, WKURLSchemeHandler, WKScriptMessageHandlerWithReply
     c.setURLSchemeHandler(self, forURLScheme: "probe")
     c.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "probe")
     let prefs = c.preferences
-    if config == "nosuspend" || config == "all" {
+    // config = tokens joined by '+': nosuspend, timer, autoinc, suppress, activity
+    // ("private" = timer+autoinc+suppress, "all" = everything)
+    var tokens = Set(config.split(separator: "+").map(String.init))
+    if tokens.contains("private") { tokens.formUnion(["timer", "autoinc", "suppress"]) }
+    if tokens.contains("all") { tokens.formUnion(["timer", "autoinc", "suppress", "nosuspend", "activity"]) }
+    if tokens.contains("nosuspend") {
       if #available(macOS 14.0, iOS 17.0, *) {
         prefs.inactiveSchedulingPolicy = WKPreferences.InactiveSchedulingPolicy.none
         configNotes["inactiveSchedulingPolicy"] = "none"
@@ -97,19 +102,33 @@ final class Probe: NSObject, WKURLSchemeHandler, WKScriptMessageHandlerWithReply
         configNotes["inactiveSchedulingPolicy"] = "unavailable"
       }
     }
-    if config == "private" || config == "all" {
-      configNotes["_setHiddenPageDOMTimerThrottlingEnabled"] = setPrivateBool(
+    if tokens.contains("timer") {
+      configNotes["_setHiddenPageDOMTimerThrottlingEnabled:NO"] = setPrivateBool(
         prefs, "_setHiddenPageDOMTimerThrottlingEnabled:", false)
-      configNotes["_setHiddenPageDOMTimerThrottlingAutoIncreases"] = setPrivateBool(
+    }
+    if tokens.contains("autoinc") {
+      configNotes["_setHiddenPageDOMTimerThrottlingAutoIncreases:NO"] = setPrivateBool(
         prefs, "_setHiddenPageDOMTimerThrottlingAutoIncreases:", false)
-      configNotes["_setPageVisibilityBasedProcessSuppressionEnabled"] = setPrivateBool(
+    }
+    if tokens.contains("suppress") {
+      configNotes["_setPageVisibilityBasedProcessSuppressionEnabled:NO"] = setPrivateBool(
         prefs, "_setPageVisibilityBasedProcessSuppressionEnabled:", false)
     }
-    if config == "all" {
-      let act = ProcessInfo.processInfo.beginActivity(
+    if tokens.contains("activity") {
+      activity = ProcessInfo.processInfo.beginActivity(
         options: [.userInitiated, .latencyCritical], reason: "probe")
-      activity = act
       configNotes["beginActivity"] = "userInitiated+latencyCritical"
+    }
+    if args["secure-scheme"] != nil {
+      let pool = WKProcessPool()
+      let sel = NSSelectorFromString("_registerURLSchemeAsSecure:")
+      if pool.responds(to: sel) {
+        pool.perform(sel, with: "probe")
+        configNotes["_registerURLSchemeAsSecure"] = true
+      } else {
+        configNotes["_registerURLSchemeAsSecure"] = false
+      }
+      c.processPool = pool
     }
     return c
   }
@@ -133,8 +152,9 @@ final class Probe: NSObject, WKURLSchemeHandler, WKScriptMessageHandlerWithReply
       emit("RESULT timeout {\"afterSecs\":\(timeout)}")
       self.finish(code: 2)
     }
-    emit("PROBE start mode=\(mode) config=\(config) url=\(base)\(startPath)")
-    webView.load(URLRequest(url: URL(string: base + startPath)!))
+    let url = args["start-url"] ?? (base + startPath)
+    emit("PROBE start mode=\(mode) config=\(config) url=\(url)")
+    webView.load(URLRequest(url: URL(string: url)!))
   }
 
   func finish(code: Int32) {
@@ -164,6 +184,9 @@ final class Probe: NSObject, WKURLSchemeHandler, WKScriptMessageHandlerWithReply
   ) {
     if let s = message.body as? String, s == "ping" {
       replyHandler("pong", nil)
+    } else if let s = message.body as? String, s == "__done" {
+      replyHandler("ok", nil)
+      DispatchQueue.main.async { self.finish(code: 0) }
     } else {
       replyHandler(message.body, nil)
     }

@@ -16,19 +16,23 @@ jobs:
         run: sw_vers; xcodebuild -version; defaults read /System/Library/Frameworks/WebKit.framework/Resources/Info.plist CFBundleVersion
       - name: build
         run: apple/build-macos.sh
+      - name: loopback server (COI alternative)
+        run: nohup python3 tools/loopback.py 8765 web > mac-loopback-server.log 2>&1 &
       - name: main suite (A1-A4, A6)
         run: perl -e 'alarm shift; exec @ARGV' 300 build/macos/probe --web web --mode main --timeout 240 2>&1 | tee mac-main.log || true
-      - name: throttle default
-        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config default --hidden-secs 90 2>&1 | tee mac-throttle-default.log || true
-      - name: throttle inactiveSchedulingPolicy=none
-        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config nosuspend --hidden-secs 90 2>&1 | tee mac-throttle-nosuspend.log || true
-      - name: throttle private prefs
-        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config private --hidden-secs 90 2>&1 | tee mac-throttle-private.log || true
-      - name: throttle all
-        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config all --hidden-secs 90 2>&1 | tee mac-throttle-all.log || true
+      - name: custom scheme registered as secure (private API)
+        run: perl -e 'alarm shift; exec @ARGV' 100 build/macos/probe --web web --mode envonly --secure-scheme --timeout 60 2>&1 | tee mac-secure.log || true
+      - name: loopback http (COI alternative, A3 with SAB clock, A4)
+        run: perl -e 'alarm shift; exec @ARGV' 150 build/macos/probe --web web --mode loopback --start-url "http://127.0.0.1:8765/coi/index.html?mode=loopback" --timeout 120 2>&1 | tee mac-loopback.log || true
+      - name: throttle hidden-timer pref only
+        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config timer --hidden-secs 90 2>&1 | tee mac-throttle-timer.log || true
+      - name: throttle process-suppression pref only
+        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config suppress --hidden-secs 90 2>&1 | tee mac-throttle-suppress.log || true
+      - name: throttle default, minimized instead of orderOut
+        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config default --hide minimize --hidden-secs 90 2>&1 | tee mac-throttle-minimize.log || true
       - name: collect
         if: always()
-        run: python3 tools/collect.py macos-results.json main=mac-main.log throttle_default=mac-throttle-default.log throttle_nosuspend=mac-throttle-nosuspend.log throttle_private=mac-throttle-private.log throttle_all=mac-throttle-all.log
+        run: python3 tools/collect.py macos-results.json main=mac-main.log secure=mac-secure.log loopback=mac-loopback.log loopback_server=mac-loopback-server.log throttle_timer=mac-throttle-timer.log throttle_suppress=mac-throttle-suppress.log throttle_minimize=mac-throttle-minimize.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -58,13 +62,19 @@ jobs:
         run: apple/build-ios.sh
       - name: modules (B1)
         run: apple/run-ios.sh ios-modules.log 180 --mode modules
+      - name: loopback server (COI alternative)
+        run: nohup python3 tools/loopback.py 8765 web > ios-loopback-server.log 2>&1 &
       - name: webview suite (B2)
         run: apple/run-ios.sh ios-main.log 360 --mode main --modules 0 --timeout 300
+      - name: custom scheme registered as secure (private API)
+        run: apple/run-ios.sh ios-secure.log 100 --mode envonly --modules 0 --secure-scheme --timeout 60
+      - name: loopback http (COI alternative)
+        run: apple/run-ios.sh ios-loopback.log 150 --mode loopback --modules 0 --start-url "http://127.0.0.1:8765/coi/index.html?mode=loopback" --timeout 120
       - name: collect
         if: always()
         run: |
           cat build/ios/status.txt || true
-          python3 tools/collect.py ios-results.json modules=ios-modules.log main=ios-main.log
+          python3 tools/collect.py ios-results.json modules=ios-modules.log main=ios-main.log secure=ios-secure.log loopback=ios-loopback.log loopback_server=ios-loopback-server.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -79,6 +79,6 @@ cp -R web "$APP/web"
 codesign --force --sign - "$APP"
 # which runtimes ended up in the binary
 for s in _probe_c_module _probe_rust_module _probe_zig_module _probe_go_module _x_cgo_init _rust_eh_personality; do
-  if nm "$APP/Probe" | grep -q " $s\$"; then echo "symbol $s present"; else echo "symbol $s absent"; fi
+  if nm "$APP/Probe" | grep -q "$s"; then echo "symbol $s present"; else echo "symbol $s absent"; fi
 done | tee -a "$OUT/status.txt"
 ls -la "$APP"
