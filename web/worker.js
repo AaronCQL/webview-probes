@@ -1,12 +1,11 @@
-// Dedicated worker used by the page probes.
+// Worker used by the page probes. Runs as a dedicated Worker, or as a SharedWorker (onconnect).
 let ticks = [];
 
-self.onmessage = async (e) => {
-  const m = e.data;
+async function handle(m, reply) {
   if (m.cmd === 'env') {
     let sabNew = false;
     try { new SharedArrayBuffer(8); sabNew = true; } catch (_) {}
-    self.postMessage({ coi: self.crossOriginIsolated === true, sabType: typeof SharedArrayBuffer, sabNew });
+    reply({ coi: self.crossOriginIsolated === true, sabType: typeof SharedArrayBuffer, sabNew });
   } else if (m.cmd === 'pingloop') {
     // fetch the native side in a tight loop until m.ms elapsed; record completion times.
     const end = Date.now() + m.ms;
@@ -22,11 +21,18 @@ self.onmessage = async (e) => {
         await new Promise((r) => setTimeout(r, 10));
       }
     }
-    self.postMessage({ done, errors, lastError });
+    reply({ done, errors, lastError });
   } else if (m.cmd === 'ticks') {
     ticks = [];
     setInterval(() => ticks.push(Date.now()), m.ms || 100);
   } else if (m.cmd === 'getticks') {
-    self.postMessage({ ticks });
+    reply({ ticks });
   }
+}
+
+self.onmessage = (e) => handle(e.data, (r) => self.postMessage(r));
+self.onconnect = (e) => {
+  const port = e.ports[0];
+  port.onmessage = (ev) => handle(ev.data, (r) => port.postMessage(r));
+  port.start();
 };

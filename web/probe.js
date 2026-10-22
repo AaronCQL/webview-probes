@@ -326,15 +326,34 @@ async function latency() {
 }
 
 // ---------- A4: worker → native while the main thread is blocked ----------
-async function workerBlock() {
-  const w = new Worker('worker.js');
-  const resultP = workerCall(w, { cmd: 'pingloop', ms: 4500 }, 15000);
+async function workerBlock(shared) {
+  const phase = shared ? 'worker-block-shared' : 'worker-block';
+  let w, resultP;
+  try {
+    if (shared) {
+      const sw = new SharedWorker('worker.js?shared=1');
+      w = { terminate: () => sw.port.close() };
+      resultP = new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error('shared worker timeout')), 15000);
+        sw.onerror = (e) => { clearTimeout(t); rej(new Error('shared worker error ' + (e.message || ''))); };
+        sw.port.onmessage = (e) => { clearTimeout(t); res(e.data); };
+        sw.port.start();
+        sw.port.postMessage({ cmd: 'pingloop', ms: 4500 });
+      });
+    } else {
+      w = new Worker('worker.js');
+      resultP = workerCall(w, { cmd: 'pingloop', ms: 4500 }, 15000);
+    }
+  } catch (e) {
+    await report(phase, { error: String(e), pass: false });
+    return;
+  }
   await sleep(1000);
   const blockStart = Date.now();
   while (Date.now() - blockStart < 2000) {}
   const blockEnd = Date.now();
   let r;
-  try { r = await resultP; } catch (e) { await report('worker-block', { error: String(e) }); return; }
+  try { r = await resultP; } catch (e) { await report(phase, { error: String(e), pass: false }); return; }
   w.terminate();
   const d = r.done;
   const inBlock = d.filter((t) => t > blockStart + 20 && t < blockEnd);
@@ -345,7 +364,7 @@ async function workerBlock() {
   }
   let hostArrivals = null;
   try { hostArrivals = JSON.parse(await cmd('arrivals', 'from=' + (blockStart + 20) + '&to=' + blockEnd)); } catch (e) { hostArrivals = String(e); }
-  await report('worker-block', {
+  await report(phase, {
     blockMs: blockEnd - blockStart,
     completionsTotal: d.length,
     completionsBeforeBlock: before.length,
@@ -501,12 +520,14 @@ async function main() {
     if (MODE === 'envonly') return await report('done', {});
     if (MODE === 'loopback') {
       await latency();
-      await workerBlock();
+      await workerBlock(false);
+      await workerBlock(true);
       return await report('done', {});
     }
     await bodies();
     await latency();
-    await workerBlock();
+    await workerBlock(false);
+    await workerBlock(true);
     if (params.get('crash') === '0') await report('done', {});
     else await crash();
   } catch (e) {
