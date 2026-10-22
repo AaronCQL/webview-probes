@@ -1,0 +1,67 @@
+name: windows
+on:
+  workflow_dispatch:
+  push:
+    paths: ["windows/**", "web/**", "modules/**", "tools/**", ".github/workflows/windows.yml"]
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  webview2:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            modules/rust/target
+            ~/.nuget/packages
+          key: win-${{ hashFiles('modules/rust/**', 'windows/Probe/*.csproj') }}
+      - name: env
+        run: |
+          [System.Environment]::OSVersion.VersionString
+          (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}').pv
+      - name: build modules (C, Rust, Zig, Go DLLs)
+        shell: bash
+        run: windows/build-modules.sh
+      - name: build host
+        run: dotnet build windows/Probe/Probe.csproj -c Release -o build/win/app
+      - name: modules (C6)
+        run: windows/run.ps1 win-modules.log 120 --mode modules --dir build/win
+      - name: main suite https origin (C1-C4, crash)
+        run: windows/run.ps1 win-main-https.log 300 --mode main --origin https://probe.localhost --web web --modules-dir build/win --timeout 240
+      - name: main suite custom scheme
+        run: windows/run.ps1 win-main-scheme.log 300 --mode main --origin probe://app --web web --timeout 240
+      - name: events post (C7)
+        run: windows/run.ps1 win-events-post.log 120 --mode events --delivery post --rate 10000 --secs 30 --web web --timeout 100
+      - name: events wake+pull (C7)
+        run: windows/run.ps1 win-events-wakepull.log 120 --mode events --delivery wakepull --rate 10000 --secs 30 --web web --timeout 100
+      - name: throttle default (C5)
+        run: windows/run.ps1 win-throttle-default.log 200 --mode throttle --config default --hidden-secs 90 --web web
+      - name: throttle keep IsVisible
+        run: windows/run.ps1 win-throttle-keepvisible.log 200 --mode throttle --config keepvisible --hidden-secs 90 --web web
+      - name: throttle flag
+        run: windows/run.ps1 win-throttle-flag.log 200 --mode throttle --config flag --hidden-secs 90 --web web
+      - name: throttle minimize
+        run: windows/run.ps1 win-throttle-minimize.log 200 --mode throttle --config minimize --hidden-secs 90 --web web
+      - name: collect
+        if: always()
+        run: |
+          Get-Content build/win/status.txt -ErrorAction SilentlyContinue
+          python tools/collect.py windows-results.json modules=win-modules.log main_https=win-main-https.log main_scheme=win-main-scheme.log events_post=win-events-post.log events_wakepull=win-events-wakepull.log throttle_default=win-throttle-default.log throttle_keepvisible=win-throttle-keepvisible.log throttle_flag=win-throttle-flag.log throttle_minimize=win-throttle-minimize.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-results
+          path: |
+            windows-results.json
+            win-*.log*
+            build/win/status.txt

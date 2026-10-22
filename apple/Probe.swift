@@ -91,7 +91,7 @@ final class Probe: NSObject, WKURLSchemeHandler, WKScriptMessageHandlerWithReply
     let prefs = c.preferences
     if config == "nosuspend" || config == "all" {
       if #available(macOS 14.0, iOS 17.0, *) {
-        prefs.inactiveSchedulingPolicy = WKInactiveSchedulingPolicy.none
+        prefs.inactiveSchedulingPolicy = WKPreferences.InactiveSchedulingPolicy.none
         configNotes["inactiveSchedulingPolicy"] = "none"
       } else {
         configNotes["inactiveSchedulingPolicy"] = "unavailable"
