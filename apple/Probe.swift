@@ -4,9 +4,15 @@ import WebKit
 
 func nowMs() -> Double { Date().timeIntervalSince1970 * 1000 }
 
+/// fd used for log lines; the Stockfish probe swaps fd 1 for a pipe, so it dups the real stdout first.
+var logFD: Int32 = 1
+
 func emit(_ s: String) {
-  print(s)
   fflush(stdout)
+  let line = s + "\n"
+  line.utf8CString.withUnsafeBufferPointer { p in
+    _ = write(logFD, p.baseAddress, p.count - 1)
+  }
 }
 
 func jsonString(_ obj: Any) -> String {
@@ -272,7 +278,8 @@ final class Probe: NSObject, WKURLSchemeHandler, WKScriptMessageHandlerWithReply
     var headers: [String: String] = [
       "Content-Type": ctype,
       "Cache-Control": "no-store",
-      "Cross-Origin-Resource-Policy": "same-origin",
+      "Cross-Origin-Resource-Policy": path == "/ping" ? "cross-origin" : "same-origin",
+      "Access-Control-Allow-Origin": "*",
     ]
     if isolate {
       headers["Cross-Origin-Opener-Policy"] = "same-origin"

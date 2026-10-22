@@ -12,12 +12,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     setvbuf(stdout, nil, _IOLBF, 0)
     let cli = parseArgs(CommandLine.arguments)
     if cli["modules"] != "0" { runModuleTests() }
+    if cli["stockfish"] == "1" { runStockfishProbe() }
     if cli["mode"] == "modules" {
       emit("PROBE_DONE code=0")
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { exit(0) }
       return true
     }
-    if cli["stockfish"] == "1" { runStockfishProbe() }
     let p = Probe(webRoot: Bundle.main.resourceURL!.appendingPathComponent("web"), args: cli)
     probe = p
     let w = UIWindow(frame: UIScreen.main.bounds)

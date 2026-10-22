@@ -1,0 +1,37 @@
+name: stockfish-ios
+on:
+  workflow_dispatch:
+  push:
+    paths: ["apple/build-stockfish-ios.sh", "apple/ios/Stockfish.swift", ".github/workflows/stockfish.yml"]
+concurrency:
+  group: stockfish-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: modules/go/go.mod
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+      - name: build stockfish static lib
+        run: set -o pipefail; apple/build-stockfish-ios.sh 2>&1 | tail -40
+      - name: build app (modules + stockfish)
+        run: apple/build-ios.sh
+      - name: run stockfish + modules in the simulator
+        run: apple/run-ios.sh ios-stockfish.log 240 --mode modules --stockfish 1
+      - name: collect
+        if: always()
+        run: python3 tools/collect.py stockfish-results.json stockfish=ios-stockfish.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stockfish-results
+          path: |
+            stockfish-results.json
+            ios-stockfish.log

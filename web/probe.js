@@ -293,7 +293,9 @@ async function bench(name, fn, n, clock, tpu) {
 
 async function latency() {
   const n = +(params.get('n') || 2000);
-  const clock = await makeClock();
+  const tr = timerResolution();
+  // performance.now() is good enough when it has <=50 us resolution; otherwise try a SAB counter clock
+  const clock = tr.min_nonzero_delta_us != null && tr.min_nonzero_delta_us <= 50 ? (clockNote = 'performance.now is fine', null) : await makeClock();
   const tpu = clock ? clock.calibrate() : null;
   const res = {
     clock: clock ? 'sab-counter' : 'performance.now',
@@ -308,6 +310,14 @@ async function latency() {
   res.fetch_post = await bench('fetch_post', async () => { await (await fetch('/ping', { method: 'POST', body: ping })).text(); }, n, clock, tpu);
   res.msg_1k = await bench('msg_1k', async () => { await msgCall(bodyStr); }, Math.min(n, 500), clock, tpu);
   res.fetch_post_1k = await bench('fetch_post_1k', async () => { await (await fetch('/ping', { method: 'POST', body: bodyStr })).text(); }, Math.min(n, 500), clock, tpu);
+  const xs = params.get('scheme');
+  if (xs) {
+    // cross-origin fetch from this (COI, fine-clock) page to the native custom scheme
+    try {
+      res.xscheme_get = await bench('xscheme_get', async () => { await (await fetch(xs + '/ping', { mode: 'cors' })).text(); }, n, clock, tpu);
+      res.xscheme_post = await bench('xscheme_post', async () => { await (await fetch(xs + '/ping', { method: 'POST', body: ping, mode: 'cors' })).text(); }, n, clock, tpu);
+    } catch (e) { res.xscheme_error = String(e); }
+  }
   if (clock) {
     res.clock_ticks_per_us_after = Math.round(clock.calibrate() * 100) / 100;
     clock.w.terminate();
@@ -363,7 +373,11 @@ function segCount(times, a, b) {
   let maxGap = 0;
   for (let i = 1; i < xs.length; i++) maxGap = Math.max(maxGap, xs[i] - xs[i - 1]);
   const secs = (b - a) / 1000;
-  return { n: xs.length, per_s: Math.round((xs.length / secs) * 100) / 100, maxGapMs: maxGap };
+  return {
+    n: xs.length, per_s: Math.round((xs.length / secs) * 100) / 100, maxGapMs: maxGap,
+    firstAfterStartMs: xs.length ? Math.round(xs[0] - a) : null,
+    lastBeforeEndMs: xs.length ? Math.round(b - xs[xs.length - 1]) : null,
+  };
 }
 
 async function throttleMode() {
@@ -456,7 +470,7 @@ async function eventsMode() {
   };
   hostEventHandler = (d) => {
     if (typeof d !== 'string') return;
-    if (d.charCodeAt(0) === 69 /* E */) {
+    if (d.charCodeAt(0) === 69 /* E */ && d[1] === ':') {
       const i = d.indexOf(':', 2);
       onEvent(+d.slice(2, i), +d.slice(i + 1));
     } else if (d === 'W') {

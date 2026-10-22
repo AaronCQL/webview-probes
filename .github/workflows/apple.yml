@@ -1,6 +1,11 @@
 name: apple
 on:
   workflow_dispatch:
+    inputs:
+      throttle:
+        description: "run the ~6 min hidden-window throttling probes"
+        type: boolean
+        default: true
   push:
     paths: ["apple/**", "web/**", "modules/**", "tools/**", ".github/workflows/apple.yml"]
 concurrency:
@@ -23,16 +28,25 @@ jobs:
       - name: custom scheme registered as secure (private API)
         run: perl -e 'alarm shift; exec @ARGV' 100 build/macos/probe --web web --mode envonly --secure-scheme --timeout 60 2>&1 | tee mac-secure.log || true
       - name: loopback http (COI alternative, A3 with SAB clock, A4)
-        run: perl -e 'alarm shift; exec @ARGV' 150 build/macos/probe --web web --mode loopback --start-url "http://127.0.0.1:8765/coi/index.html?mode=loopback" --timeout 120 2>&1 | tee mac-loopback.log || true
+        run: perl -e 'alarm shift; exec @ARGV' 180 build/macos/probe --web web --mode loopback --start-url "http://127.0.0.1:8765/coi/index.html?mode=loopback&scheme=probe://app" --timeout 150 2>&1 | tee mac-loopback.log || true
+      - name: throttle default (orderOut)
+        if: github.event_name == 'workflow_dispatch' && inputs.throttle
+        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config default --hidden-secs 90 2>&1 | tee mac-throttle-default.log || true
+      - name: throttle inactiveSchedulingPolicy=none
+        if: github.event_name == 'workflow_dispatch' && inputs.throttle
+        run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config nosuspend --hidden-secs 90 2>&1 | tee mac-throttle-nosuspend.log || true
       - name: throttle hidden-timer pref only
+        if: github.event_name == 'workflow_dispatch' && inputs.throttle
         run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config timer --hidden-secs 90 2>&1 | tee mac-throttle-timer.log || true
       - name: throttle process-suppression pref only
+        if: github.event_name == 'workflow_dispatch' && inputs.throttle
         run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config suppress --hidden-secs 90 2>&1 | tee mac-throttle-suppress.log || true
       - name: throttle default, minimized instead of orderOut
+        if: github.event_name == 'workflow_dispatch' && inputs.throttle
         run: perl -e 'alarm shift; exec @ARGV' 200 build/macos/probe --web web --mode throttle --config default --hide minimize --hidden-secs 90 2>&1 | tee mac-throttle-minimize.log || true
       - name: collect
         if: always()
-        run: python3 tools/collect.py macos-results.json main=mac-main.log secure=mac-secure.log loopback=mac-loopback.log loopback_server=mac-loopback-server.log throttle_timer=mac-throttle-timer.log throttle_suppress=mac-throttle-suppress.log throttle_minimize=mac-throttle-minimize.log
+        run: python3 tools/collect.py macos-results.json main=mac-main.log secure=mac-secure.log loopback=mac-loopback.log loopback_server=mac-loopback-server.log throttle_default=mac-throttle-default.log throttle_nosuspend=mac-throttle-nosuspend.log throttle_timer=mac-throttle-timer.log throttle_suppress=mac-throttle-suppress.log throttle_minimize=mac-throttle-minimize.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -69,7 +83,7 @@ jobs:
       - name: custom scheme registered as secure (private API)
         run: apple/run-ios.sh ios-secure.log 100 --mode envonly --modules 0 --secure-scheme --timeout 60
       - name: loopback http (COI alternative)
-        run: apple/run-ios.sh ios-loopback.log 150 --mode loopback --modules 0 --start-url "http://127.0.0.1:8765/coi/index.html?mode=loopback" --timeout 120
+        run: apple/run-ios.sh ios-loopback.log 180 --mode loopback --modules 0 --start-url "http://127.0.0.1:8765/coi/index.html?mode=loopback&scheme=probe://app" --timeout 150
       - name: collect
         if: always()
         run: |

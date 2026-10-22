@@ -44,11 +44,19 @@ jobs:
         run: windows/run.ps1 win-events-post.log 150 --mode events --delivery post --rate 10000 --secs 30 --web web --timeout 120
       - name: events wake+pull (C7)
         run: windows/run.ps1 win-events-wakepull.log 150 --mode events --delivery wakepull --rate 10000 --secs 30 --web web --timeout 120
+      - name: throttle default (C5)
+        run: windows/run.ps1 win-throttle-default.log 200 --mode throttle --config default --hidden-secs 90 --web web
+      - name: throttle keep IsVisible
+        run: windows/run.ps1 win-throttle-keepvisible.log 200 --mode throttle --config keepvisible --hidden-secs 90 --web web
+      - name: throttle flag
+        run: windows/run.ps1 win-throttle-flag.log 200 --mode throttle --config flag --hidden-secs 90 --web web
+      - name: throttle minimize
+        run: windows/run.ps1 win-throttle-minimize.log 200 --mode throttle --config minimize --hidden-secs 90 --web web
       - name: collect
         if: always()
         run: |
           Get-Content build/win/status.txt -ErrorAction SilentlyContinue
-          python tools/collect.py windows-results.json modules=win-modules.log main_https=win-main-https.log main_scheme=win-main-scheme.log events_post=win-events-post.log events_wakepull=win-events-wakepull.log
+          python tools/collect.py windows-results.json modules=win-modules.log main_https=win-main-https.log main_scheme=win-main-scheme.log events_post=win-events-post.log events_wakepull=win-events-wakepull.log throttle_default=win-throttle-default.log throttle_keepvisible=win-throttle-keepvisible.log throttle_flag=win-throttle-flag.log throttle_minimize=win-throttle-minimize.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
