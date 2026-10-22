@@ -132,9 +132,9 @@ sealed class ProbeForm : Form
             if (config.Contains("flag")) extra.Add("--disable-background-timer-throttling");
             if (args.ContainsKey("browser-args")) extra.Add(args["browser-args"]);
             configNotes["additionalBrowserArguments"] = string.Join(" ", extra);
-            var opts = new CoreWebView2EnvironmentOptions(string.Join(" ", extra));
             var reg = new CoreWebView2CustomSchemeRegistration("probe") { TreatAsSecure = true, HasAuthorityComponent = true };
-            opts.CustomSchemeRegistrations.Add(reg);
+            var opts = new CoreWebView2EnvironmentOptions(string.Join(" ", extra), "", null, false,
+                new List<CoreWebView2CustomSchemeRegistration> { reg });
             var udf = Path.Combine(Path.GetTempPath(), "probe-udf-" + Process.GetCurrentProcess().Id);
             env = await CoreWebView2Environment.CreateAsync(null, udf, opts);
             controller = await env.CreateCoreWebView2ControllerAsync(Handle);

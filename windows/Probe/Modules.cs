@@ -140,6 +140,9 @@ static unsafe class Modules
         return 0;
     }
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr GetModuleHandleW(string name);
+
     static string Tail(string s, int n) => s.Length <= n ? s : s.Substring(s.Length - n);
 
     // child: load, call, FreeLibrary, try to reload + call again, then exit cleanly.
@@ -150,7 +153,7 @@ static unsafe class Modules
         Console.WriteLine("first call ok=" + Exercise((PmModule*)m, 1000)["ok"]);
         Console.Out.Flush();
         NativeLibrary.Free(h);
-        Console.WriteLine("freed");
+        Console.WriteLine("freed; module still mapped=" + (GetModuleHandleW("probe_" + lang + ".dll") != IntPtr.Zero));
         Console.Out.Flush();
         System.Threading.Thread.Sleep(1000);
         Console.WriteLine("survived 1s after free");
