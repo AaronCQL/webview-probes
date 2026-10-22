@@ -133,6 +133,7 @@ sealed class ProbeForm : Form
             }
             var extra = new List<string>();
             if (config.Contains("flag")) extra.Add("--disable-background-timer-throttling");
+            if (config.Contains("intensive")) extra.Add("--disable-features=IntensiveWakeUpThrottling");
             if (args.ContainsKey("browser-args")) extra.Add(args["browser-args"]);
             configNotes["additionalBrowserArguments"] = string.Join(" ", extra);
             var reg = new CoreWebView2CustomSchemeRegistration("probe") { TreatAsSecure = true, HasAuthorityComponent = true };
@@ -200,7 +201,13 @@ sealed class ProbeForm : Form
         Util.Emit("RESULT " + phase + " " + text);
         if (phase == "done")
         {
-            if (mode == "events") { SampleMemory("after"); RecordEventsHost(); }
+            if (mode == "events")
+            {
+                // memory right after the page finished, then again after 10 s of idle
+                SampleMemory("after");
+                Later(10000, () => { SampleMemory("after+10s"); RecordEventsHost(); Finish(0); });
+                return;
+            }
             BeginInvoke(new Action(() => Finish(0)));
         }
     }
@@ -401,8 +408,10 @@ sealed class ProbeForm : Form
     readonly List<object> memSamples = new List<object>();
     string eventsDelivery = "";
 
+    long pulls;
     string Pull()
     {
+        pulls++;
         wakePending = false;
         var sb = new StringBuilder("[");
         sb.Append(string.Join(",", queue));
@@ -434,7 +443,7 @@ sealed class ProbeForm : Form
 
     void RecordEventsHost()
     {
-        var o = new { delivery = eventsDelivery, sent, postCallMsTotal = Math.Round(postMsTotal, 1), memory = memSamples };
+        var o = new { delivery = eventsDelivery, sent, pulls, postCallMsTotal = Math.Round(postMsTotal, 1), memory = memSamples };
         results["events-host"] = o;
         Util.Emit("RESULT events-host " + Util.Json(o));
     }
